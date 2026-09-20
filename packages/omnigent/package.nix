@@ -223,6 +223,19 @@ python3.pkgs.buildPythonApplication {
     chmod -R u+w omnigent/server/static/web-ui
   '';
 
+  # omnigent daemonizes its host process and spawns the local server via
+  # ``sys.executable -m omnigent.n`` / ``-m omnigent.runner._zygote`` (cli.py,
+  # host/runner_zygote.py). The Nix wrapper injects the closure through an
+  # in-process ``site.addsitedir`` call, not the PYTHONPATH env var, so those
+  # detached child interpreters start bare and fail with "No module named
+  # 'omnigent'". Export PYTHONPATH so the spawns resolve the runtime deps.
+  makeWrapperArgs = [
+    "--prefix"
+    "PYTHONPATH"
+    ":"
+    "${placeholder "out"}/${python3.sitePackages}:${python3.pkgs.makePythonPath omnigentDeps}"
+  ];
+
   # Upstream hard-pins the sibling SDKs and several runtime deps at exact
   # versions; nixpkgs has moved past some. The closure supplies them all.
   pythonRelaxDeps = [
