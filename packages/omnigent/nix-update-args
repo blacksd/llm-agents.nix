@@ -1,0 +1,7 @@
+# Upstream pushes daily prerelease tags (vX.Y.Z.devYYYYMMDD, vX.Y.Zrc1) that
+# pollute the tag list and the releases.atom feed; nix-update otherwise picks
+# the newest of those. GitHub *releases* only carry the stable vX.Y.Z tags, so
+# prefer them, and pin the regex to plain three-component versions as a belt.
+--use-github-releases
+--version-regex
+^v([0-9]+\.[0-9]+\.[0-9]+)$

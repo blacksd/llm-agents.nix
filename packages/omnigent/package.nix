@@ -13,13 +13,13 @@
 }:
 
 let
-  version = "0.13.0";
+  version = "0.14.0";
 
   src = fetchFromGitHub {
     owner = "omnigent-ai";
     repo = "omnigent";
     tag = "v${version}";
-    hash = "sha256-t/C48rTAO/fvSFjG/1DXDzGyZLCJ2bqSFekYsq9RpeM=";
+    hash = "sha256-kU0lUX/GpBoOKgj90VRtv2+iyt3TRsthty1JopmXB2o=";
   };
 
   # CEL (Common Expression Language) evaluator; used by omnigent's policy
@@ -132,7 +132,7 @@ let
       inherit (finalAttrs) pname version src;
       pnpm = pnpm_10;
       pnpmWorkspaces = [ "web" ];
-      hash = "sha256-Mr7Fc0WvKk5Bve/FxPZ353kCif8hd+TVBnXITOLrdps=";
+      hash = "sha256-abl0gd/yDVqrFF0y1AQAYuhgXGU+VrmOtqM9F8nlv34=";
       fetcherVersion = 3;
     };
 
@@ -284,12 +284,13 @@ python3.pkgs.buildPythonApplication {
     test -f $out/${python3.sitePackages}/omnigent/server/static/web-ui/index.html
   '';
 
-  # Updated with ``nix-update --flake omnigent`` (the repo default): the
-  # inline version/hash above is what it rewrites. nix-update tracks GitHub
-  # releases, which exclude the daily ``vX.Y.Z.devYYYYMMDD`` prereleases, so no
-  # version-regex filtering is needed. The pnpm/PyPI sub-hashes only move on a
-  # version bump and are refreshed the same way (rebuild, copy the reported
-  # ``got:`` hash).
+  # Updated with ``nix-update --flake omnigent`` (the repo default): the inline
+  # version/hash above is what it rewrites. Upstream also pushes daily
+  # ``vX.Y.Z.devYYYYMMDD`` / ``vX.Y.Zrc1`` tags that appear in the tag list and
+  # releases.atom, so the ``nix-update-args`` file pins ``--use-github-releases``
+  # plus a plain-semver ``--version-regex`` to keep those out. The pnpm/PyPI
+  # sub-hashes only move on a version bump and are NOT touched by nix-update;
+  # refresh them by hand (rebuild, copy the reported ``got:`` hash).
   passthru = {
     category = "AI Coding Agents";
     inherit
