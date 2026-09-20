@@ -174,6 +174,11 @@ let
     certifi
     claude-agent-sdk
     click
+    # Upstream declares ``PyJWT[crypto]`` (the crypto extra pulls cryptography)
+    # and omnigent.inner.egress.ca imports ``cryptography`` directly to mint the
+    # egress proxy CA. nixpkgs' pyjwt has no such extra, so add it explicitly;
+    # without it the server dies on startup with ModuleNotFoundError.
+    cryptography
     fastapi
     ftfy
     httpx
@@ -262,7 +267,10 @@ python3.pkgs.buildPythonApplication {
   pythonImportsCheck = [
     "omnigent"
     "omnigent.cli"
-    "omnigent.server"
+    # Import the server app module, not just the package __init__: it transitively
+    # pulls the egress CA path (cryptography) that the daemon needs at startup, so
+    # a missing runtime dep fails the build instead of the first ``omni`` run.
+    "omnigent.server.app"
   ];
 
   doInstallCheck = true;
