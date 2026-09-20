@@ -411,6 +411,16 @@ Nix packages for AI coding agents and development tools. Automatically updated d
 
 </details>
 <details>
+<summary><strong>omnigent</strong> - Multi-agent coding CLI with a local web console</summary>
+
+- **Source**: source
+- **License**: Apache-2.0
+- **Homepage**: https://github.com/omnigent-ai/omnigent
+- **Usage**: `nix run github:numtide/llm-agents.nix#omnigent -- --help`
+- **Nix**: [packages/omnigent/package.nix](packages/omnigent/package.nix)
+
+</details>
+<details>
 <summary><strong>omo-ai</strong> - Oh My OpenAgent standalone (Senpi edition) coding agent</summary>
 
 - **Source**: bytecode

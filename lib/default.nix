@@ -34,6 +34,11 @@ inputs."nixpkgs".lib.extend (
         githubId = 25513724;
         name = "Bad3r";
       };
+      blacksd = {
+        github = "blacksd";
+        githubId = 5203115;
+        name = "Marco Bulgarini";
+      };
       chernistry = {
         github = "chernistry";
         githubId = 73943355;
