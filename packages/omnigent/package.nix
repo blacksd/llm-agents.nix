@@ -211,78 +211,115 @@ let
     websockets
     zstandard
   ];
+  # omnigent's importable module: the app built as a plain python package, with
+  # no self-referential wrapper. Kept separate from the wrapped application below
+  # so it can go into ``pythonEnv`` (via withPackages) without a build-time cycle
+  # — the app's wrapper references the env, the env references this, and this
+  # references neither.
+  omnigent-pymod = python3.pkgs.buildPythonPackage {
+    pname = "omnigent";
+    inherit version src;
+    pyproject = true;
+
+    build-system = with python3.pkgs; [ setuptools ];
+
+    dependencies = omnigentDeps;
+
+    # Ship the built web console so the server serves it at ``/`` instead of the
+    # API-only landing page.
+    preBuild = ''
+      cp -r ${web-ui}/. omnigent/server/static/web-ui/
+      chmod -R u+w omnigent/server/static/web-ui
+    '';
+
+    # The Claude/Cursor/etc. harness bridges register a hook + MCP command in the
+    # target agent's settings.json as ``<python> -I -m omnigent.harnesses.*`` and
+    # default ``<python>`` to ``sys.executable``. That command is run by the agent
+    # (a sibling process), so it inherits none of omni's wrapper env, and ``-I``
+    # additionally ignores PYTHONPATH — so under Nix it starts as the bare
+    # interpreter and dies with "No module named 'omnigent'" (e.g. the Claude stop
+    # hook). Teach the shared ``python_executable or sys.executable`` fallback to
+    # honour OMNIGENT_PYTHON_EXECUTABLE, which the wrapper points at pythonEnv (an
+    # interpreter that resolves omnigent even under ``-I``). Read via __import__
+    # so files that don't already import os need no extra edit.
+    postPatch = ''
+      substituteInPlace $(grep -rl "python_executable or sys.executable" omnigent/harnesses omnigent/native) \
+        --replace-fail \
+          "python_executable or sys.executable" \
+          "python_executable or __import__(\"os\").environ.get(\"OMNIGENT_PYTHON_EXECUTABLE\") or sys.executable"
+    '';
+
+    # Upstream hard-pins the sibling SDKs and several runtime deps at exact
+    # versions; nixpkgs has moved past some. The closure supplies them all.
+    pythonRelaxDeps = [
+      "omnigent-client"
+      "omnigent-ui-sdk"
+      "openai"
+      "openai-agents"
+      "claude-agent-sdk"
+      "pydantic"
+      "fastapi"
+      "starlette"
+      "uvicorn"
+      "websockets"
+      "mcp"
+      "tiktoken"
+      "cel-python"
+      # nixpkgs-unstable has moved past upstream's upper bounds.
+      "rich"
+      "cachetools"
+      "argon2-cffi"
+      "packaging"
+    ];
+
+    pythonImportsCheck = [
+      "omnigent"
+      "omnigent.cli"
+      # Import the server app module, not just the package __init__: it
+      # transitively pulls the egress CA path (cryptography) that the daemon
+      # needs at startup, so a missing runtime dep fails the build instead of
+      # the first ``omni`` run.
+      "omnigent.server.app"
+    ];
+
+    postInstallCheck = ''
+      test -f $out/${python3.sitePackages}/omnigent/server/static/web-ui/index.html
+    '';
+
+    meta.mainProgram = "omnigent";
+  };
+
+  # A single interpreter whose *own* site-packages carry omnigent and its whole
+  # closure. The ``-I`` harness-bridge commands need the closure on the
+  # interpreter's built-in path (env vars, incl. PYTHONPATH, are ignored under
+  # ``-I``). Built from omnigent-pymod, so no cycle with the wrapped app.
+  pythonEnv = python3.withPackages (_: [ omnigent-pymod ]);
 in
-python3.pkgs.buildPythonApplication {
-  pname = "omnigent";
-  inherit version src;
-  pyproject = true;
-
-  build-system = with python3.pkgs; [ setuptools ];
-
-  dependencies = omnigentDeps;
-
-  # Ship the built web console so the server serves it at ``/`` instead of the
-  # API-only landing page.
-  preBuild = ''
-    cp -r ${web-ui}/. omnigent/server/static/web-ui/
-    chmod -R u+w omnigent/server/static/web-ui
-  '';
-
-  # omnigent daemonizes its host process and spawns the local server via
-  # ``sys.executable -m omnigent.n`` / ``-m omnigent.runner._zygote`` (cli.py,
-  # host/runner_zygote.py). The Nix wrapper injects the closure through an
-  # in-process ``site.addsitedir`` call, not the PYTHONPATH env var, so those
-  # detached child interpreters start bare and fail with "No module named
-  # 'omnigent'". Export PYTHONPATH so the spawns resolve the runtime deps.
-  makeWrapperArgs = [
-    "--prefix"
-    "PYTHONPATH"
-    ":"
-    "${placeholder "out"}/${python3.sitePackages}:${python3.pkgs.makePythonPath omnigentDeps}"
-  ];
-
-  # Upstream hard-pins the sibling SDKs and several runtime deps at exact
-  # versions; nixpkgs has moved past some. The closure supplies them all.
-  pythonRelaxDeps = [
-    "omnigent-client"
-    "omnigent-ui-sdk"
-    "openai"
-    "openai-agents"
-    "claude-agent-sdk"
-    "pydantic"
-    "fastapi"
-    "starlette"
-    "uvicorn"
-    "websockets"
-    "mcp"
-    "tiktoken"
-    "cel-python"
-    # nixpkgs-unstable has moved past upstream's upper bounds.
-    "rich"
-    "cachetools"
-    "argon2-cffi"
-    "packaging"
-  ];
-
-  pythonImportsCheck = [
-    "omnigent"
-    "omnigent.cli"
-    # Import the server app module, not just the package __init__: it transitively
-    # pulls the egress CA path (cryptography) that the daemon needs at startup, so
-    # a missing runtime dep fails the build instead of the first ``omni`` run.
-    "omnigent.server.app"
-  ];
-
+# Wrap the module into the CLI application, adding the two spawn fixes:
+#  * PYTHONPATH (--prefix): omnigent daemonizes via ``sys.executable -m
+#    omnigent.host._daemon_entry`` (cli.py) as a child of this wrapper; the Nix
+#    wrapper injects the closure through an in-process ``site.addsitedir`` call
+#    rather than the env var, so without this the detached daemon starts bare.
+#  * OMNIGENT_PYTHON_EXECUTABLE (--set): the ``-I`` harness-bridge commands, run
+#    by a sibling agent, need a full interpreter path (see omnigent-pymod's
+#    postPatch); point it at pythonEnv.
+(python3.pkgs.toPythonApplication omnigent-pymod).overrideAttrs (old: {
   doInstallCheck = true;
-  nativeInstallCheckInputs = [
+  nativeInstallCheckInputs = (old.nativeInstallCheckInputs or [ ]) ++ [
     versionCheckHook
     versionCheckHomeHook
   ];
   versionCheckProgramArg = "--version";
 
-  postInstallCheck = ''
-    test -f $out/${python3.sitePackages}/omnigent/server/static/web-ui/index.html
-  '';
+  makeWrapperArgs = (old.makeWrapperArgs or [ ]) ++ [
+    "--prefix"
+    "PYTHONPATH"
+    ":"
+    "${placeholder "out"}/${python3.sitePackages}:${python3.pkgs.makePythonPath omnigentDeps}"
+    "--set"
+    "OMNIGENT_PYTHON_EXECUTABLE"
+    "${pythonEnv}/bin/python3"
+  ];
 
   # Updated with ``nix-update --flake omnigent`` (the repo default): the inline
   # version/hash above is what it rewrites. Upstream also pushes daily
@@ -291,13 +328,15 @@ python3.pkgs.buildPythonApplication {
   # plus a plain-semver ``--version-regex`` to keep those out. The pnpm/PyPI
   # sub-hashes only move on a version bump and are NOT touched by nix-update;
   # refresh them by hand (rebuild, copy the reported ``got:`` hash).
-  passthru = {
+  passthru = (old.passthru or { }) // {
     category = "AI Coding Agents";
     inherit
       web-ui
       cel-python
       omnigent-client
       omnigent-ui-sdk
+      omnigent-pymod
+      pythonEnv
       ;
   };
 
@@ -315,4 +354,4 @@ python3.pkgs.buildPythonApplication {
       "aarch64-darwin"
     ];
   };
-}
+})
