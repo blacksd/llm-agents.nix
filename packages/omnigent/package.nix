@@ -242,11 +242,22 @@ let
     # honour OMNIGENT_PYTHON_EXECUTABLE, which the wrapper points at pythonEnv (an
     # interpreter that resolves omnigent even under ``-I``). Read via __import__
     # so files that don't already import os need no extra edit.
+    #
+    # The hook settings are built inside the *runner*, which the host daemon
+    # spawns with an env allowlist (_RUNNER_ENV_ALLOWLIST in host/connect.py),
+    # not the full environment — so OMNIGENT_PYTHON_EXECUTABLE set on the wrapper
+    # is stripped before it reaches the code above unless it is on the allowlist.
+    # Add it so the runner sees it and the observer/stop hooks resolve omnigent.
     postPatch = ''
       substituteInPlace $(grep -rl "python_executable or sys.executable" omnigent/harnesses omnigent/native) \
         --replace-fail \
           "python_executable or sys.executable" \
           "python_executable or __import__(\"os\").environ.get(\"OMNIGENT_PYTHON_EXECUTABLE\") or sys.executable"
+
+      substituteInPlace omnigent/host/connect.py \
+        --replace-fail \
+          '_RUNNER_ENV_ALLOWLIST: frozenset[str] = frozenset(' \
+          '_RUNNER_ENV_ALLOWLIST: frozenset[str] = frozenset({"OMNIGENT_PYTHON_EXECUTABLE"}) | frozenset('
     '';
 
     # Upstream hard-pins the sibling SDKs and several runtime deps at exact
