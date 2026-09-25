@@ -13,13 +13,13 @@
 }:
 
 let
-  version = "0.14.0";
+  version = "0.15.0";
 
   src = fetchFromGitHub {
     owner = "omnigent-ai";
     repo = "omnigent";
     tag = "v${version}";
-    hash = "sha256-kU0lUX/GpBoOKgj90VRtv2+iyt3TRsthty1JopmXB2o=";
+    hash = "sha256-cuM3c2H7/3TTl1954oGx9QbfZlffcN2H+qPo18sX9Us=";
   };
 
   # CEL (Common Expression Language) evaluator; used by omnigent's policy
@@ -258,6 +258,15 @@ let
         --replace-fail \
           '_RUNNER_ENV_ALLOWLIST: frozenset[str] = frozenset(' \
           '_RUNNER_ENV_ALLOWLIST: frozenset[str] = frozenset({"OMNIGENT_PYTHON_EXECUTABLE"}) | frozenset('
+
+      # ``omni upgrade`` has no env-var opt-out and dead-ends on a Nix install
+      # ("No automatic upgrade command is known ... reinstall omnigent from your
+      # original source"). Point the user at the flake instead. replace-all: the
+      # identical message is raised at three call sites in cli.py.
+      substituteInPlace omnigent/cli.py \
+        --replace-warn \
+          'f"No automatic upgrade command is known for this install. {suggestion.command}."' \
+          'f"This omnigent is managed by Nix (llm-agents.nix); upgrade it there, not with omni upgrade."'
     '';
 
     # Upstream hard-pins the sibling SDKs and several runtime deps at exact
@@ -330,6 +339,13 @@ in
     "--set"
     "OMNIGENT_PYTHON_EXECUTABLE"
     "${pythonEnv}/bin/python3"
+    # Silence the passive "a new release is available" banner on every launch:
+    # the Nix store path is read-only and upgrades come from the flake, not the
+    # in-tool upgrader. (omnigent-pymod's postPatch turns an explicit
+    # ``omni upgrade`` into a Nix-aware hint instead of the generic dead end.)
+    "--set"
+    "OMNIGENT_NO_UPDATE_CHECK"
+    "1"
   ];
 
   # Updated with ``nix-update --flake omnigent`` (the repo default): the inline
